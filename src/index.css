@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+body {
+  @apply bg-slate-950 text-slate-100 antialiased;
+}
+
+/* Simple 3D flip for flashcards */
+.perspective { perspective: 1000px; }
+.flip-inner {
+  transition: transform 0.45s;
+  transform-style: preserve-3d;
+}
+.flipped .flip-inner { transform: rotateY(180deg); }
+.flip-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.flip-back { transform: rotateY(180deg); }

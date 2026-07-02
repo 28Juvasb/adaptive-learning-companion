@@ -1,0 +1,227 @@
+// All stage prompt templates + response validators.
+// Every stage function returns a Promise of validated, normalized JSON.
+
+import { callLLM, LLMError } from "./openrouter.js";
+
+const JSON_RULES =
+  "Return ONLY raw valid JSON. No markdown fences, no preamble, no commentary, no trailing text. " +
+  "Use double quotes for all keys and strings.";
+
+function requireArray(json, key, label) {
+  if (!json || !Array.isArray(json[key]) || json[key].length === 0) {
+    throw new LLMError(`Model response was missing "${key}" (${label}). Retry.`);
+  }
+  return json[key];
+}
+
+const str = (v, fallback = "") => (typeof v === "string" ? v : fallback);
+
+// ---------------------------------------------------------------------------
+// Stage 1 — Diagnose: generate prerequisite questions
+// ---------------------------------------------------------------------------
+
+export function fetchDiagnosticQuestions({ topic, level, resources }) {
+  const system = `You are an expert tutor diagnosing prerequisite knowledge. Given a topic and target level, generate exactly 4 short-answer questions that test the FOUNDATIONAL concepts required to learn this topic — NOT the topic itself. Order questions from easy to hard. Questions must be answerable in 1-3 sentences.
+
+${JSON_RULES}
+Shape:
+{
+  "questions": [
+    { "id": "q1", "text": "...", "tests_prerequisite": "name of prerequisite concept", "difficulty": "easy" }
+  ]
+}
+"difficulty" must be one of: "easy", "medium", "hard".`;
+
+  const user = `Topic: ${topic}\nTarget level: ${level}\nResources to consider (may be empty): ${resources || "none"}`;
+
+  return callLLM(system, user, {
+    mockKey: "diagnose",
+    mockContext: { topic },
+    validate: (json) => {
+      const questions = requireArray(json, "questions", "diagnostic questions").map((q, i) => ({
+        id: str(q.id, `q${i + 1}`),
+        text: str(q.text),
+        tests_prerequisite: str(q.tests_prerequisite, "general foundation"),
+        difficulty: ["easy", "medium", "hard"].includes(q.difficulty) ? q.difficulty : "medium",
+      }));
+      if (questions.some((q) => !q.text)) throw new LLMError("A question had no text. Retry.");
+      return { questions: questions.slice(0, 5) };
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2 — Remediate: grade answers, find gaps, teach mini-lessons
+// ---------------------------------------------------------------------------
+
+export function gradeDiagnostics({ topic, level, questions, answers }) {
+  const system = `You are grading a student's answers to prerequisite diagnostic questions. For each answer, judge correctness generously (partial understanding counts as correct) and give one sentence of feedback. For each WRONG or blank answer, identify the specific concept gap and write a short corrective mini-lesson. Then decide if the student is ready for the main topic (ready when there are no "major" gaps).
+
+${JSON_RULES}
+Shape:
+{
+  "grading": [ { "id": "q1", "correct": true, "feedback": "one sentence" } ],
+  "gaps": [
+    { "concept": "...", "severity": "minor", "correction": "1-2 sentence correction", "mini_lesson": "3-5 sentence teaching of the gap" }
+  ],
+  "solid_prerequisites": ["concepts the student clearly has"],
+  "ready_for_main": true
+}
+"severity" must be "minor" or "major". "gaps" may be an empty array. Include one "grading" entry per question, matching the question ids.`;
+
+  const pairs = questions
+    .map(
+      (q) =>
+        `Question ${q.id} (tests: ${q.tests_prerequisite}): ${q.text}\nStudent answer: ${
+          (answers[q.id] || "").trim() || "(left blank)"
+        }`
+    )
+    .join("\n\n");
+
+  const user = `Topic the student wants to learn: ${topic}\nTarget level: ${level}\n\n${pairs}`;
+
+  return callLLM(system, user, {
+    mockKey: "remediate",
+    mockContext: { topic, questions, answers },
+    validate: (json) => {
+      const grading = requireArray(json, "grading", "answer grading").map((g, i) => ({
+        id: str(g.id, questions[i]?.id ?? `q${i + 1}`),
+        correct: g.correct === true,
+        feedback: str(g.feedback),
+      }));
+      const gaps = (Array.isArray(json.gaps) ? json.gaps : []).map((g) => ({
+        concept: str(g.concept, "unnamed concept"),
+        severity: g.severity === "major" ? "major" : "minor",
+        correction: str(g.correction),
+        mini_lesson: str(g.mini_lesson),
+      }));
+      return {
+        grading,
+        gaps,
+        solidPrereqs: Array.isArray(json.solid_prerequisites)
+          ? json.solid_prerequisites.filter((s) => typeof s === "string")
+          : [],
+        readyForMain: json.ready_for_main !== false,
+      };
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3 — Teach: deliver the lesson + comprehension check questions
+// ---------------------------------------------------------------------------
+
+export function fetchLesson({ topic, level, solidPrereqs, gaps, resources }) {
+  const system = `You are teaching a student a topic at their specified level. If resources are provided, ground the lesson in them and do not introduce facts outside them. Structure the lesson in 3-5 clear sections, each 3-6 sentences, plain language for the target level. Briefly connect back to any prerequisite gaps that were just remediated. End with exactly 3 short-answer comprehension-check questions about the lesson content.
+
+${JSON_RULES}
+Shape:
+{
+  "lesson_sections": [ { "heading": "...", "content": "..." } ],
+  "check_questions": [ { "id": "c1", "text": "...", "concept_tag": "..." } ]
+}`;
+
+  const user = `Topic: ${topic}
+Target level: ${level}
+Confirmed-solid prerequisites: ${solidPrereqs.length ? solidPrereqs.join(", ") : "unknown"}
+Recently remediated gaps: ${gaps.length ? gaps.map((g) => g.concept).join(", ") : "none"}
+Resources (may be empty): ${resources || "none"}`;
+
+  return callLLM(system, user, {
+    mockKey: "teach",
+    mockContext: { topic },
+    validate: (json) => {
+      const sections = requireArray(json, "lesson_sections", "lesson sections").map((s) => ({
+        heading: str(s.heading, "Section"),
+        content: str(s.content),
+      }));
+      const checks = requireArray(json, "check_questions", "comprehension questions").map((c, i) => ({
+        id: str(c.id, `c${i + 1}`),
+        text: str(c.text),
+        concept_tag: str(c.concept_tag, "core concept"),
+      }));
+      return { lesson_sections: sections, check_questions: checks.slice(0, 3) };
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3b — Grade the comprehension check
+// ---------------------------------------------------------------------------
+
+export function gradeComprehension({ topic, level, checkQuestions, checkAnswers }) {
+  const system = `You are grading a student's answers to comprehension-check questions about a lesson they just received. Judge correctness generously. For wrong or blank answers, give a 1-2 sentence correction.
+
+${JSON_RULES}
+Shape:
+{
+  "results": [ { "id": "c1", "correct": true, "correction": "", "concept_tag": "..." } ]
+}
+Include one entry per question, matching ids. "correction" may be an empty string for correct answers.`;
+
+  const pairs = checkQuestions
+    .map(
+      (q) =>
+        `Question ${q.id} (concept: ${q.concept_tag}): ${q.text}\nStudent answer: ${
+          (checkAnswers[q.id] || "").trim() || "(left blank)"
+        }`
+    )
+    .join("\n\n");
+
+  const user = `Topic: ${topic}\nLevel: ${level}\n\n${pairs}`;
+
+  return callLLM(system, user, {
+    mockKey: "checkGrade",
+    mockContext: { checkQuestions, checkAnswers },
+    validate: (json) => {
+      const results = requireArray(json, "results", "check grading").map((r, i) => ({
+        id: str(r.id, checkQuestions[i]?.id ?? `c${i + 1}`),
+        correct: r.correct === true,
+        correction: str(r.correction),
+        concept_tag: str(r.concept_tag, checkQuestions[i]?.concept_tag ?? "core concept"),
+      }));
+      return results;
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4 — Reinforce: convert weaknesses into flashcards
+// ---------------------------------------------------------------------------
+
+export function fetchFlashcards({ topic, level, weakConcepts }) {
+  const hasWeak = weakConcepts.length > 0;
+  const system = `Convert learning material into atomic spaced-repetition flashcards. Each card tests ONE concept, is concise, and avoids yes/no phrasing. Fronts are questions or prompts; backs are short factual answers (1-3 sentences).
+
+${JSON_RULES}
+Shape:
+{
+  "cards": [
+    { "front": "question or prompt", "back": "answer", "concept_tag": "...", "difficulty": "easy" }
+  ]
+}
+"difficulty" must be "easy", "medium", or "hard". Generate 4-8 cards.`;
+
+  const user = hasWeak
+    ? `Topic: ${topic} (level: ${level})\nMake flashcards prioritizing every wrong answer and weak concept from this session:\n${weakConcepts
+        .map((w) => `- ${w}`)
+        .join("\n")}\nAlso add 1-2 cards for the most important core ideas of the topic.`
+    : `Topic: ${topic} (level: ${level})\nThe student made no mistakes this session. Make flashcards for the 4-6 most important core ideas of the topic at this level.`;
+
+  return callLLM(system, user, {
+    mockKey: "reinforce",
+    mockContext: { topic, weakConcepts },
+    validate: (json) => {
+      const cards = requireArray(json, "cards", "flashcards")
+        .map((c) => ({
+          front: str(c.front),
+          back: str(c.back),
+          concept_tag: str(c.concept_tag, "core concept"),
+          difficulty: ["easy", "medium", "hard"].includes(c.difficulty) ? c.difficulty : "medium",
+        }))
+        .filter((c) => c.front && c.back);
+      if (cards.length === 0) throw new LLMError("No usable flashcards in response. Retry.");
+      return cards.slice(0, 10);
+    },
+  });
+}
