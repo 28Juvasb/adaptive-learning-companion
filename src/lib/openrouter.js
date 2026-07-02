@@ -7,10 +7,13 @@ const API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 const API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 // Models are tried in order. Swap the first entry if it rate-limits mid-demo.
+// OpenRouter's free-tier lineup changes often — models here were live-verified
+// against https://openrouter.ai/api/v1/models at build time. If all three ever
+// start failing, re-run that endpoint and filter for `id.endsWith(":free")`.
 export const MODELS = [
-  "deepseek/deepseek-chat-v3-0324:free",
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "google/gemini-2.0-flash-exp:free",
+  "openai/gpt-oss-120b:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "openai/gpt-oss-20b:free",
 ];
 
 const TIMEOUT_MS = 90_000;
