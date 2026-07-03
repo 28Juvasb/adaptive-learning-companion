@@ -2,6 +2,7 @@ import { fetchFlashcards } from "../lib/prompts.js";
 import { useStageFetch } from "../lib/useStageFetch.js";
 import { addCardsToDeck } from "../lib/storage.js";
 import { Card, PrimaryButton, Spinner, ErrorPanel, Badge, StageHeading } from "./ui.jsx";
+import AttachmentBar from "./AttachmentBar.jsx";
 
 // Collect everything the student got wrong this session into flashcard fodder.
 function collectWeakConcepts(state) {
@@ -32,7 +33,7 @@ export default function ReinforceStage({ state, dispatch, onDeckChange }) {
     { skip: sessionCards.length > 0 }
   );
 
-  if (loading) return <Spinner label="Converting your mistakes into flashcards…" />;
+  if (loading) return <Spinner label="Turning this session into flashcards…" tone="text-teal-500" />;
   if (error) return <ErrorPanel message={error} onRetry={retry} />;
 
   const weakCount = collectWeakConcepts(state).length;
@@ -40,24 +41,27 @@ export default function ReinforceStage({ state, dispatch, onDeckChange }) {
   return (
     <div className="mx-auto max-w-2xl">
       <StageHeading
-        kicker="Step 5 of 5 · Reinforce"
-        title={`${sessionCards.length} flashcards created`}
+        kicker="Step 5 of 6 · Reinforce"
+        title="Turned into flashcards"
         subtitle={
           weakCount > 0
-            ? `Built from the ${weakCount} concept${weakCount > 1 ? "s" : ""} you struggled with, plus the topic's core ideas. They're saved to your deck and scheduled for spaced review.`
-            : "No mistakes this session, so these cover the topic's core ideas. They're saved to your deck and scheduled for spaced review."
+            ? `Built from the ${weakCount} concept${weakCount > 1 ? "s" : ""} you struggled with, plus the topic's core ideas. A quick preview before you review them for real.`
+            : "No mistakes this session, so these cover the topic's core ideas. A quick preview before you review them for real."
         }
+        accent="text-teal-600"
       />
+
+      <AttachmentBar state={state} dispatch={dispatch} />
 
       <div className="mb-6 space-y-3">
         {sessionCards.map((c, i) => (
-          <Card key={i} className="py-4">
+          <Card key={i} className="border-teal-200 bg-teal-50/70 py-4">
             <div className="mb-2 flex items-center gap-2">
-              <Badge tone="indigo">{c.concept_tag}</Badge>
+              <Badge tone="teal">{c.concept_tag}</Badge>
               <Badge>{c.difficulty}</Badge>
             </div>
-            <p className="font-medium text-slate-100">{c.front}</p>
-            <p className="mt-1 text-sm text-slate-400">{c.back}</p>
+            <p className="font-bold text-[#16202e]">{c.front}</p>
+            <p className="mt-1 text-sm text-slate-500">{c.back}</p>
           </Card>
         ))}
       </div>

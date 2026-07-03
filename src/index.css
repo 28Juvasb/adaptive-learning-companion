@@ -1,10 +1,28 @@
 @import "tailwindcss";
+@import "highlight.js/styles/github.css";
 
-body {
-  @apply bg-slate-950 text-slate-100 antialiased;
+@layer base {
+  :root {
+    --cream: #fcf7ed;
+    --cream-panel: #fbf3e6;
+    --ink: #16202e;
+  }
+
+  html {
+    font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  body {
+    @apply text-slate-800 antialiased;
+    background-color: var(--cream);
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.02em;
+  }
 }
 
-/* Simple 3D flip for flashcards */
+/* Flashcard 3D flip (Review stage) */
 .perspective { perspective: 1000px; }
 .flip-inner {
   transition: transform 0.45s;
@@ -16,3 +34,44 @@ body {
   -webkit-backface-visibility: hidden;
 }
 .flip-back { transform: rotateY(180deg); }
+
+/* Streaming caret for chat */
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.stream-caret::after {
+  content: "▋";
+  margin-left: 1px;
+  animation: blink 1s step-end infinite;
+  color: #94a3b8;
+}
+
+/* Markdown / prose rendering inside chat + lessons */
+.prose-tutor { @apply text-slate-800 leading-relaxed; }
+.prose-tutor > *:first-child { margin-top: 0; }
+.prose-tutor > *:last-child { margin-bottom: 0; }
+.prose-tutor p { @apply my-3; }
+.prose-tutor h1 { @apply text-xl font-bold mt-5 mb-2; }
+.prose-tutor h2 { @apply text-lg font-bold mt-5 mb-2; }
+.prose-tutor h3 { @apply text-base font-bold mt-4 mb-2; }
+.prose-tutor ul { @apply my-3 list-disc pl-5 space-y-1; }
+.prose-tutor ol { @apply my-3 list-decimal pl-5 space-y-1; }
+.prose-tutor li { @apply pl-1; }
+.prose-tutor a { @apply text-blue-600 underline; }
+.prose-tutor strong { @apply font-semibold text-slate-900; }
+.prose-tutor blockquote { @apply border-l-4 border-slate-300 pl-4 italic text-slate-600 my-3; }
+.prose-tutor table { @apply my-3 w-full border-collapse text-sm; }
+.prose-tutor th, .prose-tutor td { @apply border border-slate-300 px-3 py-1.5 text-left; }
+.prose-tutor th { @apply bg-slate-100 font-semibold; }
+
+/* Inline code */
+.prose-tutor code:not(pre code) {
+  @apply rounded bg-slate-200/70 px-1.5 py-0.5 text-[0.85em] font-mono text-slate-800;
+}
+/* Fenced code blocks */
+.prose-tutor pre {
+  @apply my-3 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm;
+}
+.prose-tutor pre code {
+  @apply font-mono;
+  background: transparent;
+  padding: 0;
+}
