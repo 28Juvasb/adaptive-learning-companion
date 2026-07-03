@@ -40,6 +40,9 @@ export default function App() {
             <div className="rounded-xl border border-amber-200 bg-amber-100/70 px-4 py-1.5 text-right">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700/80">Studying</p>
               <p className="font-bold leading-tight text-[#16202e]">{state.topic}</p>
+              {state.broadTopic && state.broadTopic !== state.topic && (
+                <p className="text-[11px] text-amber-700/70">part of {state.broadTopic}</p>
+              )}
             </div>
           )}
         </div>
