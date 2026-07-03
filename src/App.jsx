@@ -1,5 +1,6 @@
 import { useReducer, useState } from "react";
-import { sessionReducer, initialState, STAGES, STAGE_LABELS } from "./state/sessionReducer.js";
+import { sessionReducer, initialState } from "./state/sessionReducer.js";
+import { STAGE_ORDER, STAGE_THEME } from "./lib/theme.js";
 import { loadDeck } from "./lib/storage.js";
 import { getDueCards } from "./lib/srs.js";
 import { isDemoMode } from "./lib/openrouter.js";
@@ -10,65 +11,69 @@ import TeachStage from "./components/TeachStage.jsx";
 import ReinforceStage from "./components/ReinforceStage.jsx";
 import ReviewStage from "./components/ReviewStage.jsx";
 
+function Logo({ onClick }) {
+  return (
+    <button onClick={onClick} className="flex items-center gap-3 text-left" title="Start over">
+      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#16202e]">
+        <span className="h-4 w-4 rotate-45 rounded-[3px] bg-[#34e0a1]" />
+      </span>
+      <span className="text-lg font-extrabold tracking-tight text-[#16202e]">
+        Adaptive Learning Companion
+      </span>
+    </button>
+  );
+}
+
 export default function App() {
   const [state, dispatch] = useReducer(sessionReducer, initialState);
   const [deck, setDeck] = useState(loadDeck);
 
   const dueCount = getDueCards(deck).length;
-  const stageIndex = STAGES.indexOf(state.stage);
+  const stageIndex = STAGE_ORDER.indexOf(state.stage);
 
   return (
-    <div className="min-h-screen px-4 pb-20 pt-8">
-      <header className="mx-auto mb-10 max-w-2xl">
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => dispatch({ type: "RESET_SESSION" })}
-            className="text-left"
-            title="Start over"
-          >
-            <h1 className="text-lg font-bold text-white">
-              🧭 Adaptive Learning Companion
-            </h1>
-            <p className="text-xs text-slate-500">diagnose → remediate → teach → reinforce → review</p>
-          </button>
+    <div className="min-h-screen px-4 pb-24 pt-6">
+      <header className="mx-auto max-w-5xl">
+        <div className="flex items-center justify-between gap-4 border-b border-black/5 pb-5">
+          <Logo onClick={() => dispatch({ type: "RESET_SESSION" })} />
           {state.topic && (
-            <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">
-              {state.topic}
-            </span>
+            <div className="rounded-xl border border-amber-200 bg-amber-100/70 px-4 py-1.5 text-right">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700/80">Studying</p>
+              <p className="font-bold leading-tight text-[#16202e]">{state.topic}</p>
+            </div>
           )}
         </div>
 
         {isDemoMode && (
-          <div className="mt-4 rounded-xl border border-amber-800/60 bg-amber-950/30 px-4 py-2 text-xs text-amber-200">
-            <strong>Demo mode:</strong> no API key found — showing canned responses. Add your
-            OpenRouter key to <code className="text-amber-100">.env.local</code> and restart for real
-            AI tutoring.
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+            <strong>Demo mode:</strong> no API key found — showing canned responses. Add your OpenRouter
+            key to <code className="font-mono">.env.local</code> and restart for live AI tutoring.
           </div>
         )}
 
-        {/* Stage progress */}
-        <div className="mt-6 flex items-center gap-1.5">
-          {STAGES.map((s, i) => (
-            <div key={s} className="flex-1">
-              <div
-                className={`h-1.5 rounded-full ${
-                  i < stageIndex ? "bg-indigo-500" : i === stageIndex ? "bg-indigo-400" : "bg-slate-800"
-                }`}
-              />
-              <p
-                className={`mt-1.5 text-center text-[10px] font-medium uppercase tracking-wide ${
-                  i === stageIndex ? "text-indigo-300" : "text-slate-600"
-                }`}
-              >
-                {STAGE_LABELS[s]}
-              </p>
-            </div>
-          ))}
+        {/* Multi-color stage progress bar — each completed stage keeps its own accent */}
+        <div className="mt-6 grid grid-cols-6 gap-2">
+          {STAGE_ORDER.map((s, i) => {
+            const done = i <= stageIndex;
+            const theme = STAGE_THEME[s];
+            return (
+              <div key={s}>
+                <div className={`h-2 rounded-full ${done ? theme.bar : "bg-black/10"}`} />
+                <p
+                  className={`mt-1.5 text-center text-[10px] font-bold uppercase tracking-wide ${
+                    i === stageIndex ? theme.accent : "text-slate-400"
+                  }`}
+                >
+                  {theme.label}
+                </p>
+              </div>
+            );
+          })}
         </div>
       </header>
 
-      <main>
-        {state.stage === "setup" && <SetupStage dispatch={dispatch} dueCount={dueCount} />}
+      <main className="mt-10">
+        {state.stage === "setup" && <SetupStage state={state} dispatch={dispatch} dueCount={dueCount} />}
         {state.stage === "diagnose" && <DiagnoseStage state={state} dispatch={dispatch} />}
         {state.stage === "remediate" && <RemediateStage state={state} dispatch={dispatch} />}
         {state.stage === "teach" && <TeachStage state={state} dispatch={dispatch} />}

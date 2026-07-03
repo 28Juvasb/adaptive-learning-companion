@@ -1,7 +1,7 @@
 // All stage prompt templates + response validators.
 // Every stage function returns a Promise of validated, normalized JSON.
 
-import { callLLM, LLMError } from "./openrouter.js";
+import { callLLM, callLLMStream, LLMError } from "./openrouter.js";
 
 const JSON_RULES =
   "Return ONLY raw valid JSON. No markdown fences, no preamble, no commentary, no trailing text. " +
@@ -112,12 +112,20 @@ Shape:
 // ---------------------------------------------------------------------------
 
 export function fetchLesson({ topic, level, solidPrereqs, gaps, resources }) {
-  const system = `You are teaching a student a topic at their specified level. If resources are provided, ground the lesson in them and do not introduce facts outside them. Structure the lesson in 3-5 clear sections, each 3-6 sentences, plain language for the target level. Briefly connect back to any prerequisite gaps that were just remediated. End with exactly 3 short-answer comprehension-check questions about the lesson content.
+  const system = `You are an expert tutor teaching a topic at the student's specified level. Teach in DEPTH — this is a full lesson, not a summary. If resources are provided, ground the lesson in them and prefer their framing.
+
+Requirements:
+- Write 4-6 substantial sections. Each section's "content" is 5-10 sentences of clear, concrete explanation with a worked example, analogy, or concrete case, not a bland overview.
+- The "content" field is MARKDOWN: use **bold**, bullet lists, and — when the topic is technical or code-related — fenced code blocks with a language tag (e.g. \`\`\`python). Code MUST be correct and runnable; double-check syntax before including it.
+- Include at least one concrete example or mini case study that ties the concepts together.
+- Briefly connect back to any prerequisite gaps that were just remediated.
+- End with exactly 3 short-answer comprehension-check questions about the lesson content.
 
 ${JSON_RULES}
+Note: JSON string values may contain markdown and code, but the OUTER structure must be valid JSON (escape newlines as \\n and quotes as \\").
 Shape:
 {
-  "lesson_sections": [ { "heading": "...", "content": "..." } ],
+  "lesson_sections": [ { "heading": "...", "content": "markdown with **bold**, lists, and code blocks where relevant" } ],
   "check_questions": [ { "id": "c1", "text": "...", "concept_tag": "..." } ]
 }`;
 
@@ -224,4 +232,61 @@ Shape:
       return cards.slice(0, 10);
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Follow-up chat — streamed, in-depth, code-aware answers grounded in the
+// current session (topic, level, lesson, uploaded docs) + conversation history.
+// ---------------------------------------------------------------------------
+
+const CHAT_SYSTEM = `You are the student's expert tutor inside an adaptive learning app. Answer follow-up questions in DEPTH and with precision — the student explicitly wants thorough explanations and full case studies, not brief overviews.
+
+Rules:
+- Respond in GitHub-flavored markdown: headings, **bold**, bullet/numbered lists, and tables where they help.
+- For any code or technical topic, include CORRECT, runnable code in fenced blocks with a language tag (e.g. \`\`\`js). Verify syntax before answering — wrong code is the worst failure here.
+- When the student asks for a case study or "cover everything," structure a complete walkthrough: context, the key ideas, a worked example, common pitfalls, and a short summary.
+- Ground answers in the provided lesson and any uploaded documents when relevant; if the documents don't cover something, say so and answer from expertise.
+- Be accurate and concrete. Prefer specific examples over vague generalities. Never invent facts about the uploaded documents.`;
+
+function buildContext({ topic, level, resources, lesson }) {
+  let ctx = `The student is studying: ${topic} (level: ${level}).`;
+  if (lesson?.lesson_sections?.length) {
+    ctx +=
+      "\n\nLesson they just received:\n" +
+      lesson.lesson_sections.map((s) => `## ${s.heading}\n${s.content}`).join("\n\n");
+  }
+  if (resources) {
+    ctx += `\n\nUploaded / pasted study material (ground answers in this when relevant):\n${resources.slice(0, 12000)}`;
+  }
+  return ctx;
+}
+
+/**
+ * Stream a tutor answer. `history` is prior [{role:'user'|'assistant', content}].
+ * Calls onToken(chunk) as text arrives; resolves to the full answer string.
+ */
+export function streamTutorAnswer({ topic, level, resources, lesson, history, question }, onToken) {
+  const messages = [
+    { role: "system", content: CHAT_SYSTEM },
+    { role: "system", content: buildContext({ topic, level, resources, lesson }) },
+    ...history.map((m) => ({ role: m.role, content: m.content })),
+    { role: "user", content: question },
+  ];
+
+  const mockAnswer = `Here's a deeper look at **${question.trim() || topic}** in the context of *${topic}*.
+
+Since this is demo mode, I'm returning a canned answer, but with a real API key I'd give a full, grounded explanation — including a worked example and, for coding topics, correct fenced code like:
+
+\`\`\`js
+function example() {
+  return "add your OpenRouter key in .env.local for live answers";
+}
+\`\`\`
+
+**Key points**
+- I answer in depth, not brief overviews.
+- I ground answers in your uploaded PDFs/DOCX when relevant.
+- I stream tokens as they arrive so you're not left waiting.`;
+
+  return callLLMStream(messages, onToken, { mockAnswer });
 }

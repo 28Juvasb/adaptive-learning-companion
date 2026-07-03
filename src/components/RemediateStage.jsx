@@ -1,6 +1,8 @@
 import { gradeDiagnostics } from "../lib/prompts.js";
 import { useStageFetch } from "../lib/useStageFetch.js";
 import { Card, PrimaryButton, Spinner, ErrorPanel, Badge, StageHeading } from "./ui.jsx";
+import AttachmentBar from "./AttachmentBar.jsx";
+import Markdown from "./Markdown.jsx";
 
 export default function RemediateStage({ state, dispatch }) {
   const { topic, level, questions, answers, grading, gaps, readyForMain } = state;
@@ -13,7 +15,7 @@ export default function RemediateStage({ state, dispatch }) {
     { skip: grading.length > 0 }
   );
 
-  if (loading) return <Spinner label="Grading your answers and finding gaps…" />;
+  if (loading) return <Spinner label="Grading your answers and finding gaps…" tone="text-orange-500" />;
   if (error) return <ErrorPanel message={error} onRetry={retry} />;
 
   const correctCount = grading.filter((g) => g.correct).length;
@@ -21,50 +23,46 @@ export default function RemediateStage({ state, dispatch }) {
   return (
     <div className="mx-auto max-w-2xl">
       <StageHeading
-        kicker="Step 3 of 5 · Remediate"
-        title={
-          gaps.length === 0
-            ? "Solid foundations — no gaps found!"
-            : `Let's fix ${gaps.length} gap${gaps.length > 1 ? "s" : ""} before the lesson`
-        }
+        kicker="Step 3 of 6 · Remediate"
+        title={gaps.length === 0 ? "Solid foundations — no gaps found" : "Let's shore up a couple of gaps"}
         subtitle={`You got ${correctCount}/${grading.length} prerequisite questions right. ${
           gaps.length === 0
             ? "You're ready for the main topic."
-            : "Read the mini-lessons below — the main lesson builds on them."
+            : "Here's how the diagnosis went, and a quick fix for what's missing."
         }`}
+        accent="text-orange-600"
       />
 
-      {/* Per-question feedback */}
+      <AttachmentBar state={state} dispatch={dispatch} />
+
+      {/* Per-question grading */}
       <div className="mb-6 space-y-3">
         {grading.map((g) => {
           const q = questions.find((x) => x.id === g.id);
           return (
-            <Card key={g.id} className="py-4">
-              <div className="mb-1 flex items-center gap-2">
-                <Badge tone={g.correct ? "green" : "red"}>{g.correct ? "✓ correct" : "✗ gap"}</Badge>
-                {q && <span className="text-sm text-slate-400">{q.tests_prerequisite}</span>}
-              </div>
-              <p className="text-sm text-slate-300">{g.feedback}</p>
+            <Card key={g.id} className="flex items-center justify-between gap-3 border-orange-200 bg-orange-50/70 py-4">
+              <p className="text-sm text-slate-700">{q?.text ?? g.feedback}</p>
+              <Badge tone={g.correct ? "green" : "red"}>{g.correct ? "Correct" : "Gap"}</Badge>
             </Card>
           );
         })}
       </div>
 
-      {/* Mini-lessons for each gap */}
+      {/* Mini-lessons: "THE FIX" cards with an orange left border */}
       {gaps.length > 0 && (
         <div className="mb-6 space-y-4">
           {gaps.map((gap, i) => (
-            <Card key={i} className="border-amber-800/50">
-              <div className="mb-2 flex items-center gap-2">
-                <Badge tone={gap.severity === "major" ? "red" : "amber"}>
-                  {gap.severity} gap
-                </Badge>
-                <h3 className="font-semibold text-white">{gap.concept}</h3>
-              </div>
+            <Card key={i} className="border-orange-200 bg-orange-50/70 border-l-4 border-l-orange-500">
+              <p className="mb-1 text-xs font-extrabold uppercase tracking-widest text-orange-600">
+                The fix
+              </p>
+              <h3 className="mb-2 text-lg font-bold text-[#16202e]">{gap.concept}</h3>
               {gap.correction && (
-                <p className="mb-2 text-sm font-medium text-amber-200">{gap.correction}</p>
+                <p className="mb-2 text-sm font-medium text-orange-800">{gap.correction}</p>
               )}
-              <p className="text-sm leading-relaxed text-slate-300">{gap.mini_lesson}</p>
+              <div className="text-sm text-slate-700">
+                <Markdown>{gap.mini_lesson}</Markdown>
+              </div>
             </Card>
           ))}
         </div>
@@ -72,7 +70,7 @@ export default function RemediateStage({ state, dispatch }) {
 
       <div className="flex justify-end">
         <PrimaryButton onClick={() => dispatch({ type: "GO_TO_STAGE", stage: "teach" })}>
-          {readyForMain === false ? "I've read the mini-lessons — teach me →" : "Continue to the lesson →"}
+          {readyForMain === false ? "Got it — teach me →" : "Continue to the lesson →"}
         </PrimaryButton>
       </div>
     </div>
