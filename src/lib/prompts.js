@@ -17,6 +17,37 @@ function requireArray(json, key, label) {
 const str = (v, fallback = "") => (typeof v === "string" ? v : fallback);
 
 // ---------------------------------------------------------------------------
+// Stage 0 — Scope: break a broad topic into masterable subtopics
+// ---------------------------------------------------------------------------
+
+export function fetchSubtopics({ topic, level, resources }) {
+  const system = `You are a curriculum planner. Decide whether a topic is too BROAD to master well in a single focused session at the given level.
+
+- If broad (e.g. "Calculus", "World War 2", "Machine Learning"), break it into 4-7 FOCUSED subtopics, each of which genuinely can be mastered in one session, ordered as a sensible learning path.
+- If already narrow enough to teach deeply in one session (e.g. "Recursion in Python", "The causes of WW1"), set "is_broad" to false and return an empty subtopics list.
+
+${JSON_RULES}
+Shape:
+{
+  "is_broad": true,
+  "subtopics": [ { "title": "focused subtopic", "blurb": "one short line on what it covers" } ]
+}`;
+
+  const user = `Topic: ${topic}\nTarget level: ${level}\nResources to consider (may be empty): ${resources || "none"}`;
+
+  return callLLM(system, user, {
+    mockKey: "scope",
+    mockContext: { topic },
+    validate: (json) => {
+      const subtopics = (Array.isArray(json.subtopics) ? json.subtopics : [])
+        .map((s) => ({ title: str(s.title), blurb: str(s.blurb) }))
+        .filter((s) => s.title);
+      return { is_broad: json.is_broad === true && subtopics.length >= 2, subtopics: subtopics.slice(0, 7) };
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Stage 1 — Diagnose: generate prerequisite questions
 // ---------------------------------------------------------------------------
 
@@ -197,9 +228,15 @@ Include one entry per question, matching ids. "correction" may be an empty strin
 // Stage 4 — Reinforce: convert weaknesses into flashcards
 // ---------------------------------------------------------------------------
 
-export function fetchFlashcards({ topic, level, weakConcepts }) {
-  const hasWeak = weakConcepts.length > 0;
-  const system = `Convert learning material into atomic spaced-repetition flashcards. Each card tests ONE concept, is concise, and avoids yes/no phrasing. Fronts are questions or prompts; backs are short factual answers (1-3 sentences).
+export function fetchFlashcards({ topic, level, weakConcepts, lessonSections = [], count = 15 }) {
+  const n = Math.max(6, Math.min(24, count));
+  const system = `Convert a full study session into a COMPREHENSIVE deck of atomic spaced-repetition flashcards. Each card tests ONE concept, is concise, and avoids yes/no phrasing. Fronts are questions or prompts; backs are short factual answers (1-3 sentences). Vary difficulty across the deck.
+
+Coverage requirements — the deck must be thorough, not a token sample:
+1. At least one card for EVERY wrong answer / weak concept from this session (highest priority).
+2. At least one card for EACH lesson section's key idea.
+3. Cards for the important definitions, terms, formulas, or (for coding) syntax/patterns in the material.
+Generate exactly ${n} cards. If you run short, add cards for finer details rather than padding with duplicates.
 
 ${JSON_RULES}
 Shape:
@@ -208,17 +245,25 @@ Shape:
     { "front": "question or prompt", "back": "answer", "concept_tag": "...", "difficulty": "easy" }
   ]
 }
-"difficulty" must be "easy", "medium", or "hard". Generate 4-8 cards.`;
+"difficulty" must be "easy", "medium", or "hard".`;
 
-  const user = hasWeak
-    ? `Topic: ${topic} (level: ${level})\nMake flashcards prioritizing every wrong answer and weak concept from this session:\n${weakConcepts
+  const sectionList = lessonSections.length
+    ? `\n\nLesson sections to cover (make cards for each):\n${lessonSections
+        .map((s) => `- ${s.heading}: ${String(s.content).replace(/\s+/g, " ").slice(0, 240)}`)
+        .join("\n")}`
+    : "";
+
+  const weakList = weakConcepts.length
+    ? `\n\nWrong answers / weak concepts from this session (cover every one):\n${weakConcepts
         .map((w) => `- ${w}`)
-        .join("\n")}\nAlso add 1-2 cards for the most important core ideas of the topic.`
-    : `Topic: ${topic} (level: ${level})\nThe student made no mistakes this session. Make flashcards for the 4-6 most important core ideas of the topic at this level.`;
+        .join("\n")}`
+    : "\n\nThe student made no mistakes this session — focus on comprehensive coverage of the material.";
+
+  const user = `Topic: ${topic} (level: ${level})\nProduce exactly ${n} flashcards.${weakList}${sectionList}`;
 
   return callLLM(system, user, {
     mockKey: "reinforce",
-    mockContext: { topic, weakConcepts },
+    mockContext: { topic, weakConcepts, count: n, lessonSections },
     validate: (json) => {
       const cards = requireArray(json, "cards", "flashcards")
         .map((c) => ({
@@ -229,7 +274,7 @@ Shape:
         }))
         .filter((c) => c.front && c.back);
       if (cards.length === 0) throw new LLMError("No usable flashcards in response. Retry.");
-      return cards.slice(0, 10);
+      return cards.slice(0, n);
     },
   });
 }

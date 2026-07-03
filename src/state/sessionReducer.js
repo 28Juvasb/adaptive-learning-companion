@@ -15,7 +15,8 @@ export const STAGE_LABELS = {
 export const initialState = {
   stage: "setup",
   // intake
-  topic: "",
+  topic: "", // the FOCUSED topic taught this session (a subtopic, if scoped)
+  broadTopic: "", // the original broad topic the student entered (context)
   level: "",
   resources: "",
   // uploaded documents used for grounding (available across the first five stages)
@@ -54,6 +55,7 @@ export function sessionReducer(state, action) {
       return {
         ...initialState,
         topic: action.topic.trim(),
+        broadTopic: (action.broadTopic ?? action.topic).trim(),
         level: action.level.trim(),
         resources: action.resources.trim(),
         // preserve any files attached during setup

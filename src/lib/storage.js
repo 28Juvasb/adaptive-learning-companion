@@ -20,7 +20,11 @@ export function saveDeck(deck) {
   }
 }
 
-/** Add freshly generated cards to the persistent deck (due immediately). */
+/**
+ * Add freshly generated cards to the persistent deck (due immediately).
+ * Returns { deck, cards } — `cards` are the stamped cards (with ids) so the
+ * caller can track exactly which cards this session added (for regenerate).
+ */
 export function addCardsToDeck(newCards, topic) {
   const deck = loadDeck();
   const stamped = newCards.map((c) => ({
@@ -35,7 +39,15 @@ export function addCardsToDeck(newCards, topic) {
   }));
   const merged = [...deck, ...stamped];
   saveDeck(merged);
-  return merged;
+  return { deck: merged, cards: stamped };
+}
+
+/** Remove cards by id (used when regenerating a session's deck). */
+export function removeCardsFromDeck(ids) {
+  const set = new Set(ids);
+  const deck = loadDeck().filter((c) => !set.has(c.id));
+  saveDeck(deck);
+  return deck;
 }
 
 export function updateCardInDeck(updatedCard) {

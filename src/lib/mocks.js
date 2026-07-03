@@ -5,6 +5,18 @@ export function getMockResponse(key, ctx = {}) {
   const topic = ctx.topic || "the topic";
 
   switch (key) {
+    case "scope":
+      return {
+        is_broad: true,
+        subtopics: [
+          { title: `Foundations of ${topic}`, blurb: `The core vocabulary and first principles behind ${topic}.` },
+          { title: `The central mechanism of ${topic}`, blurb: `How the main cause-and-effect relationship actually works.` },
+          { title: `Worked examples in ${topic}`, blurb: `Applying the ideas to concrete, step-by-step cases.` },
+          { title: `Common pitfalls in ${topic}`, blurb: `Where learners usually go wrong, and how to avoid it.` },
+          { title: `Advanced ${topic}`, blurb: `Extensions and edge cases once the basics are solid.` },
+        ],
+      };
+
     case "diagnose":
       return {
         questions: [
@@ -108,35 +120,52 @@ export function getMockResponse(key, ctx = {}) {
       };
     }
 
-    case "reinforce":
-      return {
-        cards: [
-          {
-            front: `What is the core mechanism of ${topic}?`,
-            back: "A cause-and-effect relationship: a change in the input condition produces a predictable change in the output.",
-            concept_tag: "core mechanism",
-            difficulty: "medium",
-          },
-          {
-            front: `In the ${topic} worked example, what are the three steps?`,
-            back: "Input, transformation, output — in that order.",
-            concept_tag: "worked example",
-            difficulty: "easy",
-          },
-          {
-            front: `Why is memorizing outcomes a weak strategy for ${topic}?`,
-            back: "Because unfamiliar questions require reasoning from the mechanism; memorized outcomes only cover familiar cases.",
-            concept_tag: "mechanism vs memorization",
-            difficulty: "medium",
-          },
-          {
-            front: `Which prerequisite must be solid before studying ${topic}?`,
-            back: "The transformation step — being able to describe what changes and why.",
-            concept_tag: "prerequisites",
-            difficulty: "hard",
-          },
-        ],
-      };
+    case "reinforce": {
+      const count = ctx.count || 15;
+      const base = [
+        {
+          front: `What is the core mechanism of ${topic}?`,
+          back: "A cause-and-effect relationship: a change in the input condition produces a predictable change in the output.",
+          concept_tag: "core mechanism",
+          difficulty: "medium",
+        },
+        {
+          front: `In the ${topic} worked example, what are the three steps?`,
+          back: "Input, transformation, output — in that order.",
+          concept_tag: "worked example",
+          difficulty: "easy",
+        },
+        {
+          front: `Why is memorizing outcomes a weak strategy for ${topic}?`,
+          back: "Because unfamiliar questions require reasoning from the mechanism; memorized outcomes only cover familiar cases.",
+          concept_tag: "mechanism vs memorization",
+          difficulty: "medium",
+        },
+        {
+          front: `Which prerequisite must be solid before studying ${topic}?`,
+          back: "The transformation step — being able to describe what changes and why.",
+          concept_tag: "prerequisites",
+          difficulty: "hard",
+        },
+      ];
+      // In demo mode, synthesize enough cards to match the requested count so the
+      // "choose card count" control behaves realistically without a network call.
+      const sections = ctx.lessonSections || [];
+      const cards = [...base];
+      let i = 0;
+      while (cards.length < count) {
+        const section = sections[i % Math.max(sections.length, 1)];
+        const heading = section?.heading || `key idea #${i + 1}`;
+        cards.push({
+          front: `Explain "${heading}" in the context of ${topic}.`,
+          back: `A key point about ${topic}: ${heading} matters because it connects the mechanism to a concrete case.`,
+          concept_tag: heading,
+          difficulty: ["easy", "medium", "hard"][i % 3],
+        });
+        i++;
+      }
+      return { cards: cards.slice(0, count) };
+    }
 
     default:
       throw new Error(`No mock response for key: ${key}`);
