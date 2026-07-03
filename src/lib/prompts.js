@@ -147,7 +147,13 @@ export function fetchLesson({ topic, level, solidPrereqs, gaps, resources }) {
 
 Requirements:
 - Write 4-6 substantial sections. Each section's "content" is 5-10 sentences of clear, concrete explanation with a worked example, analogy, or concrete case, not a bland overview.
-- The "content" field is MARKDOWN: use **bold**, bullet lists, and — when the topic is technical or code-related — fenced code blocks with a language tag (e.g. \`\`\`python). Code MUST be correct and runnable; double-check syntax before including it.
+- The "content" field is MARKDOWN — format it properly, don't just write flowing paragraphs:
+  - Use numbered lists (1. 2. 3. on separate lines) for sequential steps, processes, or procedures.
+  - Use bullet lists for enumerable facts, properties, or comparisons that aren't ordered.
+  - Use markdown tables when comparing multiple items across the same attributes.
+  - Use **bold** for key terms the first time they're introduced.
+  - Write chemistry/math/physics notation with real Unicode subscript and superscript characters, never plain digits or caret notation: "CO₂" not "CO2", "H₂O" not "H2O", "x²" not "x^2", "kJ mol⁻¹" not "kJ/mol^-1" or "kJ mol-1". Available subscripts: ₀₁₂₃₄₅₆₇₈₉₊₋. Superscripts: ⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻.
+  - When the topic is technical or code-related, use fenced code blocks with a language tag (e.g. \`\`\`python). Code MUST be correct and runnable; double-check syntax before including it.
 - Include at least one concrete example or mini case study that ties the concepts together.
 - Briefly connect back to any prerequisite gaps that were just remediated.
 - End with exactly 3 short-answer comprehension-check questions about the lesson content.
@@ -287,8 +293,9 @@ Shape:
 const CHAT_SYSTEM = `You are the student's expert tutor inside an adaptive learning app. Answer follow-up questions in DEPTH and with precision — the student explicitly wants thorough explanations and full case studies, not brief overviews.
 
 Rules:
-- Respond in GitHub-flavored markdown: headings, **bold**, bullet/numbered lists, and tables where they help.
-- For any code or technical topic, include CORRECT, runnable code in fenced blocks with a language tag (e.g. \`\`\`js). Verify syntax before answering — wrong code is the worst failure here.
+- Respond in GitHub-flavored markdown: headings, **bold**, numbered lists for sequential steps, bullet lists for enumerable facts, and tables when comparing multiple items.
+- Write chemistry/math/physics notation with real Unicode subscript and superscript characters, never plain digits or caret notation: "CO₂" not "CO2", "x²" not "x^2", "kJ mol⁻¹" not "kJ/mol^-1". Available subscripts: ₀₁₂₃₄₅₆₇₈₉₊₋. Superscripts: ⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻.
+- Only include fenced code blocks when the question is actually about programming/software, or the student explicitly asks for code — never insert code for non-code topics (biology, history, math theory, etc.); use prose, formulas, tables, or diagrams instead. When code IS warranted, it must be CORRECT and runnable with a language tag (e.g. \`\`\`js) — verify syntax before answering.
 - When the student asks for a case study or "cover everything," structure a complete walkthrough: context, the key ideas, a worked example, common pitfalls, and a short summary.
 - Ground answers in the provided lesson and any uploaded documents when relevant; if the documents don't cover something, say so and answer from expertise.
 - Be accurate and concrete. Prefer specific examples over vague generalities. Never invent facts about the uploaded documents.`;

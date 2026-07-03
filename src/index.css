@@ -58,7 +58,7 @@
 .prose-tutor a { @apply text-blue-600 underline; }
 .prose-tutor strong { @apply font-semibold text-slate-900; }
 .prose-tutor blockquote { @apply border-l-4 border-slate-300 pl-4 italic text-slate-600 my-3; }
-.prose-tutor table { @apply my-3 w-full border-collapse text-sm; }
+.prose-tutor table { @apply my-3 block max-w-full overflow-x-auto border-collapse text-sm; }
 .prose-tutor th, .prose-tutor td { @apply border border-slate-300 px-3 py-1.5 text-left; }
 .prose-tutor th { @apply bg-slate-100 font-semibold; }
 

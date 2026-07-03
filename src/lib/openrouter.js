@@ -3,22 +3,48 @@
 
 import { getMockResponse } from "./mocks.js";
 
-const API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
-const API_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
+const NVIDIA_KEY = import.meta.env.VITE_NVIDIA_API_KEY;
 
-// Models are tried in order. Swap the first entry if it rate-limits mid-demo.
+// Each provider speaks the same OpenAI-compatible chat/completions shape,
+// just at a different URL/key. Add a provider here, then reference it by
+// name in MODELS below.
+const PROVIDERS = {
+  openrouter: {
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    key: OPENROUTER_KEY,
+    // OpenRouter attribution headers (optional but recommended).
+    extraHeaders: { "HTTP-Referer": "http://localhost:5173", "X-Title": "Adaptive Learning Companion" },
+  },
+  // NOT usable from this app: build.nvidia.com's NIM API key/verified working
+  // server-side (Node), but its actual POST response has no CORS headers, so
+  // the browser blocks it after preflight (net::ERR_FAILED). Only reachable
+  // from this SPA via a backend proxy, which this project doesn't have. Left
+  // here for reference / future proxy use — do not add to MODELS below.
+  nvidia: {
+    url: "https://integrate.api.nvidia.com/v1/chat/completions",
+    key: NVIDIA_KEY,
+    extraHeaders: {},
+  },
+};
+
+// Models are tried in order. Swap/reorder entries if one rate-limits mid-demo.
 // OpenRouter's free-tier lineup changes often — models here were live-verified
 // against https://openrouter.ai/api/v1/models at build time. If all three ever
 // start failing, re-run that endpoint and filter for `id.endsWith(":free")`.
 export const MODELS = [
-  "openai/gpt-oss-120b:free",
-  "nvidia/nemotron-3-super-120b-a12b:free",
-  "openai/gpt-oss-20b:free",
+  { id: "openai/gpt-oss-120b:free", provider: "openrouter" },
+  { id: "nvidia/nemotron-3-super-120b-a12b:free", provider: "openrouter" },
+  { id: "openai/gpt-oss-20b:free", provider: "openrouter" },
 ];
 
+// Per-model attempt timeout — NOT a shared budget across the whole failover
+// chain. Each model in MODELS gets its own fresh clock, so a rate-limited or
+// hung first attempt can't starve the fallback models of time to answer.
 const TIMEOUT_MS = 90_000;
+const MAX_TOKENS = 4096;
 
-export const isDemoMode = !API_KEY || API_KEY.trim() === "";
+export const isDemoMode = !OPENROUTER_KEY?.trim();
 
 export class LLMError extends Error {
   constructor(message, { retryable = true } = {}) {
@@ -52,31 +78,35 @@ export function extractJSON(raw) {
   throw new LLMError("Model returned malformed JSON.");
 }
 
-async function callModel(model, systemPrompt, userPrompt, signal) {
-  const res = await fetch(API_URL, {
+async function callModel({ id, provider }, systemPrompt, userPrompt, signal) {
+  const cfg = PROVIDERS[provider];
+  if (!cfg.key?.trim()) {
+    throw new LLMError(`${id} skipped (no ${provider} API key configured).`);
+  }
+
+  const res = await fetch(cfg.url, {
     method: "POST",
     signal,
     headers: {
-      Authorization: `Bearer ${API_KEY}`,
+      Authorization: `Bearer ${cfg.key}`,
       "Content-Type": "application/json",
-      // OpenRouter attribution headers (optional but recommended)
-      "HTTP-Referer": "http://localhost:5173",
-      "X-Title": "Adaptive Learning Companion",
+      ...cfg.extraHeaders,
     },
     body: JSON.stringify({
-      model,
+      model: id,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
       temperature: 0.4,
+      max_tokens: MAX_TOKENS,
       response_format: { type: "json_object" },
     }),
   });
 
   if (!res.ok) {
     const detail = res.status === 429 ? "rate limited" : `HTTP ${res.status}`;
-    throw new LLMError(`${model} failed (${detail}).`);
+    throw new LLMError(`${id} failed (${detail}).`);
   }
 
   const data = await res.json();
@@ -100,25 +130,22 @@ export async function callLLM(systemPrompt, userPrompt, { validate, mockKey, moc
     return validate ? validate(mock) : mock;
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let lastError = null;
 
-  try {
-    for (const model of MODELS) {
-      try {
-        const json = await callModel(model, systemPrompt, userPrompt, controller.signal);
-        return validate ? validate(json) : json;
-      } catch (err) {
-        if (err.name === "AbortError") {
-          throw new LLMError("Request timed out. Check your connection and retry.");
-        }
-        console.warn(`Model ${model} failed, trying next:`, err.message);
-        lastError = err;
-      }
+  for (const model of MODELS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const json = await callModel(model, systemPrompt, userPrompt, controller.signal);
+      return validate ? validate(json) : json;
+    } catch (err) {
+      const message =
+        err.name === "AbortError" ? `${model.id} timed out after ${TIMEOUT_MS / 1000}s.` : err.message;
+      console.warn(`Model ${model.id} failed, trying next:`, message);
+      lastError = new LLMError(message);
+    } finally {
+      clearTimeout(timer);
     }
-  } finally {
-    clearTimeout(timer);
   }
 
   throw new LLMError(
@@ -130,22 +157,26 @@ export async function callLLM(systemPrompt, userPrompt, { validate, mockKey, moc
 // Streaming chat (plain markdown, not JSON) — used by the follow-up chat panel.
 // ---------------------------------------------------------------------------
 
-async function streamModel(model, messages, signal, onToken) {
-  const res = await fetch(API_URL, {
+async function streamModel({ id, provider }, messages, signal, onToken) {
+  const cfg = PROVIDERS[provider];
+  if (!cfg.key?.trim()) {
+    throw new LLMError(`${id} skipped (no ${provider} API key configured).`);
+  }
+
+  const res = await fetch(cfg.url, {
     method: "POST",
     signal,
     headers: {
-      Authorization: `Bearer ${API_KEY}`,
+      Authorization: `Bearer ${cfg.key}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "http://localhost:5173",
-      "X-Title": "Adaptive Learning Companion",
+      ...cfg.extraHeaders,
     },
-    body: JSON.stringify({ model, messages, temperature: 0.5, stream: true }),
+    body: JSON.stringify({ model: id, messages, temperature: 0.5, stream: true, max_tokens: MAX_TOKENS }),
   });
 
   if (!res.ok || !res.body) {
     const detail = res.status === 429 ? "rate limited" : `HTTP ${res.status}`;
-    throw new LLMError(`${model} failed (${detail}).`);
+    throw new LLMError(`${id} failed (${detail}).`);
   }
 
   const reader = res.body.getReader();
@@ -154,7 +185,17 @@ async function streamModel(model, messages, signal, onToken) {
   let full = "";
 
   while (true) {
-    const { done, value } = await reader.read();
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch (err) {
+      // Timed out mid-stream. Whatever the student already saw stream in is a
+      // real, usable (if truncated) answer — return it instead of discarding
+      // it for a bare "timed out" error.
+      if (err.name === "AbortError" && full.trim()) return full;
+      throw err;
+    }
+    const { done, value } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
@@ -178,7 +219,7 @@ async function streamModel(model, messages, signal, onToken) {
       }
     }
   }
-  if (!full.trim()) throw new LLMError(`${model} returned an empty response.`);
+  if (!full.trim()) throw new LLMError(`${id} returned an empty response.`);
   return full;
 }
 
@@ -200,21 +241,20 @@ export async function callLLMStream(messages, onToken, { mockAnswer } = {}) {
     return text;
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let lastError = null;
-  try {
-    for (const model of MODELS) {
-      try {
-        return await streamModel(model, messages, controller.signal, onToken);
-      } catch (err) {
-        if (err.name === "AbortError") throw new LLMError("Request timed out. Retry.");
-        console.warn(`Stream model ${model} failed, trying next:`, err.message);
-        lastError = err;
-      }
+  for (const model of MODELS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      return await streamModel(model, messages, controller.signal, onToken);
+    } catch (err) {
+      const message =
+        err.name === "AbortError" ? `${model.id} timed out after ${TIMEOUT_MS / 1000}s.` : err.message;
+      console.warn(`Stream model ${model.id} failed, trying next:`, message);
+      lastError = new LLMError(message);
+    } finally {
+      clearTimeout(timer);
     }
-  } finally {
-    clearTimeout(timer);
   }
   throw new LLMError(`All models failed (last: ${lastError?.message ?? "unknown"}). Retry.`);
 }

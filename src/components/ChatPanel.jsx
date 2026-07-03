@@ -12,17 +12,39 @@ const SUGGESTIONS = [
 
 // Always-available tutor chat. Streams in-depth, code-aware answers grounded in
 // the session (topic, level, lesson, uploaded docs) + conversation history.
+// Can be maximized into a full-screen overlay; the device/browser back button
+// (and an in-overlay back button) both minimize it via the History API, so
+// there's a single source of truth for the open/closed state.
 export default function ChatPanel({ state, dispatch }) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(null); // partial assistant text while generating
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [showUpload, setShowUpload] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const scrollRef = useRef(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [state.chat, streaming]);
+
+  // The ONLY place `expanded` is ever set to false is this popstate handler,
+  // so minimize() (the in-overlay back button) and the real back button both
+  // funnel through history.back() and stay perfectly in sync — no way to end
+  // up with a stray history entry or a stuck overlay.
+  useEffect(() => {
+    if (!expanded) return;
+    window.history.pushState({ tutorChatExpanded: true }, "");
+    function onPopState() {
+      setExpanded(false);
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [expanded]);
+
+  function minimize() {
+    window.history.back();
+  }
 
   async function ask(question) {
     const q = question.trim();
@@ -57,21 +79,52 @@ export default function ChatPanel({ state, dispatch }) {
     }
   }
 
-  return (
-    <div className="flex h-full flex-col rounded-2xl border border-black/5 bg-white/70">
+  const panel = (
+    <div
+      className={
+        expanded
+          ? "flex h-full w-full flex-col rounded-2xl border border-black/5 bg-white/95"
+          : "flex h-full flex-col rounded-2xl border border-black/5 bg-white/70"
+      }
+    >
       <div className="flex items-center justify-between border-b border-black/5 px-5 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-lg">💬</span>
-          <h3 className="font-bold text-[#16202e]">Ask your tutor</h3>
+          {expanded ? (
+            <button
+              onClick={minimize}
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1 -ml-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              title="Back"
+            >
+              <span aria-hidden="true">←</span> Back
+            </button>
+          ) : (
+            <>
+              <span className="text-lg">💬</span>
+              <h3 className="font-bold text-[#16202e]">Ask your tutor</h3>
+            </>
+          )}
         </div>
-        <button
-          onClick={() => setShowUpload((s) => !s)}
-          className="text-xs font-semibold text-slate-500 underline decoration-slate-300 underline-offset-4 hover:text-slate-800"
-        >
-          {state.attachments.length > 0
-            ? `${state.attachments.length} file${state.attachments.length > 1 ? "s" : ""} attached`
-            : "Attach a file"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowUpload((s) => !s)}
+            className="text-xs font-semibold text-slate-500 underline decoration-slate-300 underline-offset-4 hover:text-slate-800"
+          >
+            {state.attachments.length > 0
+              ? `${state.attachments.length} file${state.attachments.length > 1 ? "s" : ""} attached`
+              : "Attach a file"}
+          </button>
+          <button
+            onClick={() => (expanded ? minimize() : setExpanded(true))}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            title={expanded ? "Minimize" : "Maximize"}
+          >
+            {expanded ? (
+              <span aria-hidden="true">⤡</span>
+            ) : (
+              <span aria-hidden="true">⤢</span>
+            )}
+          </button>
+        </div>
       </div>
 
       {showUpload && (
@@ -85,7 +138,11 @@ export default function ChatPanel({ state, dispatch }) {
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-4" style={{ maxHeight: 460 }}>
+      <div
+        ref={scrollRef}
+        className="flex-1 space-y-4 overflow-y-auto px-5 py-4"
+        style={expanded ? undefined : { maxHeight: 460 }}
+      >
         {state.chat.length === 0 && streaming === null && (
           <div className="py-6 text-center">
             <p className="text-sm text-slate-500">
@@ -145,6 +202,14 @@ export default function ChatPanel({ state, dispatch }) {
           {busy ? "…" : "Send"}
         </button>
       </form>
+    </div>
+  );
+
+  if (!expanded) return panel;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm sm:p-8">
+      <div className="h-full w-full max-w-4xl">{panel}</div>
     </div>
   );
 }
