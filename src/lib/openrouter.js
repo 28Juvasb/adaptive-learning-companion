@@ -33,9 +33,11 @@ const PROVIDERS = {
 // against https://openrouter.ai/api/v1/models at build time. If all three ever
 // start failing, re-run that endpoint and filter for `id.endsWith(":free")`.
 export const MODELS = [
-  { id: "openai/gpt-oss-120b:free", provider: "openrouter" },
-  { id: "nvidia/nemotron-3-super-120b-a12b:free", provider: "openrouter" },
-  { id: "openai/gpt-oss-20b:free", provider: "openrouter" },
+  { id: "meta-llama/llama-2-70b-chat:free", provider: "openrouter" },
+  { id: "mistralai/mistral-7b-instruct:free", provider: "openrouter" },
+  { id: "microsoft/phi-3-medium-128k-instruct:free", provider: "openrouter" },
+  { id: "nousresearch/nous-hermes-2-mixtral-8x7b-dpo:free", provider: "openrouter" },
+  { id: "meta-llama/llama-3-8b-instruct:free", provider: "openrouter" },
 ];
 
 // Per-model attempt timeout — NOT a shared budget across the whole failover
